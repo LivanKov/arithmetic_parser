@@ -27,6 +27,53 @@ struct Node {
     struct Token_Pair op;
 };
 
+struct QNode {
+    struct QNode* next;
+    struct QNode* prev;
+    char* sym;
+    size_t sym_len;
+    int count;
+};
+
+struct Node_queue {
+    struct QNode* front;
+    struct QNode* back;
+};
+
+struct QNode* insert_into_queue(struct Node_queue* queue, char* sym, size_t sym_len, int count) {
+    struct QNode* new_node = malloc(sizeof(struct QNode));
+    if (!new_node) {
+        fprintf(stderr, "Critical error during allocation\n");
+        return NULL;
+    }
+    new_node->sym = sym;
+    new_node->sym_len = sym_len;
+    new_node->count = count;
+    new_node->next = queue->back;
+    new_node->prev = NULL;
+    if (queue->back) {
+        queue->back->prev = new_node;
+    } else {
+        queue->front = new_node;
+    }
+    queue->back = new_node;
+    return queue->back;
+}
+
+struct QNode* pop_from_queue(struct Node_queue* queue) {
+    if (!queue->front) return NULL;
+    struct QNode* temp = queue->front;
+    struct Node* node = create_node((struct Token_Pair){.t = INVALID, .sym = temp->sym, .sym_len = temp->sym_len});
+    queue->front = temp->prev;
+    if (queue->front) {
+        queue->front->next = NULL;
+    } else {
+        queue->back = NULL;
+    }
+    free(temp);
+    return node;
+}
+
 // Helper function to check if character is an operator
 static inline int is_operator(char c) {
     return c == '*' || c == '/' || c == '+' || c == '-';
@@ -167,6 +214,18 @@ int traverse_ast(struct Node* ast_node, int depth) {
     return comb_val;
 }
 
+void print_ast(struct Node* ast_node, int depth, int left) {
+    
+
+
+
+    if (!ast_node) return;
+    
+    if (left) {
+        printf("( %s )", ast_node->op.sym);
+    }
+    
+}
 
 
 struct Node* parse_to_ast(struct Token_Pair* tokens, size_t tokens_len, size_t* pos) {
@@ -231,7 +290,7 @@ struct Node* parse_to_ast(struct Token_Pair* tokens, size_t tokens_len, size_t* 
 }
 
 int main(int argc, char** argv) {
-    char* input = "25 - 4 * 5 + 6";
+    char* input = "25 - 4 * 5 + 6 * 2 + 1";
     size_t token_count = 0;
     struct Token_Pair* tokens = tokenize(input, strlen(input), &token_count);
 
@@ -244,7 +303,7 @@ int main(int argc, char** argv) {
     
     int result = traverse_ast(ast, 0);	
     printf("Result of the calculation: %d\n", result);
-    assert(result == 11);
+    assert(result == 18);
     
     // Clean up
     free_ast(ast);
