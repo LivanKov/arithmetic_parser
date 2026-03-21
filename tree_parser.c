@@ -3,6 +3,8 @@
 #include <ctype.h>
 #include <string.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <math.h>
 
 enum Token {
     MUL,
@@ -30,8 +32,8 @@ struct Node {
 struct QNode {
     struct QNode* next;
     struct QNode* prev;
-    char* sym;
-    size_t sym_len;
+    struct Node* node;
+    int depth;
     int count;
 };
 
@@ -40,17 +42,39 @@ struct Node_queue {
     struct QNode* back;
 };
 
-struct QNode* insert_into_queue(struct Node_queue* queue, char* sym, size_t sym_len, int count) {
+struct Node_queue* create_node_queue() {
+    struct Node_queue* new_queue = (struct Node_queue*) malloc(sizeof(struct Node_queue));
+    
+    if (!new_queue) {
+        fprintf(stderr, "Critical error during allocation\n");
+        return NULL;
+    }
+
+    new_queue->front = NULL;
+    new_queue->back = NULL;
+
+    return new_queue;
+} 
+
+struct QNode* insert_into_queue(
+    struct Node_queue* queue, 
+    struct Node* node,
+    int count,
+    int depth
+) {
     struct QNode* new_node = malloc(sizeof(struct QNode));
+    
     if (!new_node) {
         fprintf(stderr, "Critical error during allocation\n");
         return NULL;
     }
-    new_node->sym = sym;
-    new_node->sym_len = sym_len;
+    
+    new_node->node = node;
     new_node->count = count;
+    new_node->depth = depth;
     new_node->next = queue->back;
     new_node->prev = NULL;
+    
     if (queue->back) {
         queue->back->prev = new_node;
     } else {
@@ -63,15 +87,74 @@ struct QNode* insert_into_queue(struct Node_queue* queue, char* sym, size_t sym_
 struct QNode* pop_from_queue(struct Node_queue* queue) {
     if (!queue->front) return NULL;
     struct QNode* temp = queue->front;
-    struct Node* node = create_node((struct Token_Pair){.t = INVALID, .sym = temp->sym, .sym_len = temp->sym_len});
     queue->front = temp->prev;
     if (queue->front) {
         queue->front->next = NULL;
     } else {
         queue->back = NULL;
     }
-    free(temp);
-    return node;
+    return temp;
+}
+
+bool is_queue_empty(struct Node_queue* queue) {
+    return !queue->back && !queue->front; 
+}
+
+void print_ast(struct Node* ast_node) {
+    struct Node_queue* queue = create_node_queue();
+    
+    if (!queue) { 
+        fprintf(stderr, "Critical error during queue allocation\n");
+        exit(2);
+    }
+
+    insert_into_queue(queue, ast_node, 1, 1);
+
+    struct Node** layer_arr = malloc(sizeof(void*));
+    memset(layer_arr, 0, sizeof(void*));
+
+    if (!layer_arr) {
+        fprintf(stderr, "Critical error during memory allocation\n");
+        exit(2);
+    }
+
+    while (!is_queue_empty(queue)) {
+        struct QNode* current = pop_from_queue(queue);
+        printf("( %s )", current->node->op.sym);
+
+        layer_arr[current->count - 1] = current->node;
+
+        int new_depth = current->depth + 1;
+
+        if (current->node->left)
+            insert_into_queue(queue, current->node->left, current->count * 2 - 1, new_depth);
+        if (current->node->right)
+            insert_into_queue(queue, current->node->right, current->count * 2, new_depth);
+
+        if (queue->front && queue->front->depth != current->depth) {
+            printf("\n");
+            int mid_index = 2;
+            int left_side_index = 4;
+
+            printf("\n");
+            size_t next_size = pow(2, current->depth);
+            layer_arr = realloc(layer_arr, next_size * sizeof(void*));
+
+            if (!layer_arr) {
+                fprintf(stderr, "Critical error during reallocation\n");
+                exit(2);
+            }
+
+            memset(layer_arr, 0, next_size);
+        }
+    }
+
+    printf("\n");
+
+    //cleanup
+    free(queue);
+    free(layer_arr);
+    
 }
 
 // Helper function to check if character is an operator
@@ -184,7 +267,6 @@ struct Node* create_node(struct Token_Pair op) {
 
 int traverse_ast(struct Node* ast_node, int depth) {
 	if(!ast_node->right && !ast_node->left) {
-	   printf("Token found\nDepth: %d, Symbol: %s\n", depth, ast_node->op.sym);
 	   return atoi(ast_node->op.sym);
 	}
 
@@ -212,19 +294,6 @@ int traverse_ast(struct Node* ast_node, int depth) {
     }
 
     return comb_val;
-}
-
-void print_ast(struct Node* ast_node, int depth, int left) {
-    
-
-
-
-    if (!ast_node) return;
-    
-    if (left) {
-        printf("( %s )", ast_node->op.sym);
-    }
-    
 }
 
 
@@ -289,7 +358,7 @@ struct Node* parse_to_ast(struct Token_Pair* tokens, size_t tokens_len, size_t* 
     return root;
 }
 
-int main(int argc, char** argv) {
+int main(void) {
     char* input = "25 - 4 * 5 + 6 * 2 + 1";
     size_t token_count = 0;
     struct Token_Pair* tokens = tokenize(input, strlen(input), &token_count);
@@ -304,7 +373,10 @@ int main(int argc, char** argv) {
     int result = traverse_ast(ast, 0);	
     printf("Result of the calculation: %d\n", result);
     assert(result == 18);
+
     
+    print_ast(ast);
+
     // Clean up
     free_ast(ast);
     free(tokens);
