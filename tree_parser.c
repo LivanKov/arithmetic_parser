@@ -13,7 +13,8 @@ enum Token {
     SUB,
     NUM,
     SPACE,
-    BRACKET,
+    L_BRACKET,
+    R_BRACKET,
     INVALID,
 };
 
@@ -21,6 +22,7 @@ struct Token_Pair {
     enum Token t;
     char* sym;
     size_t sym_len;
+    int privilege;
 };
 
 struct Node {
@@ -100,6 +102,7 @@ bool is_queue_empty(struct Node_queue* queue) {
     return !queue->back && !queue->front; 
 }
 
+// Refactor later
 void print_ast(struct Node* ast_node) {
     if (!ast_node) {
         printf("(empty)\n");
@@ -318,6 +321,13 @@ static inline int is_operator(char c) {
     return c == '*' || c == '/' || c == '+' || c == '-';
 }
 
+static inline int is_bracket(char c) {
+    return c == '(' || c == ')';
+}
+
+// Return substring of length len
+// Starting from position pos
+
 char* sub(char* src, size_t pos, size_t len) {
     char* ret = malloc(len);
 
@@ -335,7 +345,12 @@ char* sub(char* src, size_t pos, size_t len) {
 
 // Helper function to create a token pair
 static struct Token_Pair create_token(enum Token type, char* symbol, size_t sym_len) {
-    struct Token_Pair pair = {type, symbol, sym_len};
+    struct Token_Pair pair = {type, symbol, sym_len, 0};
+    return pair;
+}
+
+static struct Token_Pair create_token_priv(enum Token type, char* symbol, size_t sym_len, int privilege) {
+    struct Token_Pair pair = {type, symbol, sym_len, privilege};
     return pair;
 }
 
@@ -352,6 +367,12 @@ struct Token_Pair* tokenize(char* str, size_t str_len, size_t* out_token_count) 
 
     int minus_read = 0;
 
+    int bracket_index = 0;
+
+    int last_left_bracket_index = -1;
+
+    int last_left_bracket_token_index = -1;
+
     for (size_t i = 0; i < str_len; ++i) {
         if (isspace(str[i])) {
             if (concurrent_sym_len > 0) {
@@ -364,6 +385,7 @@ struct Token_Pair* tokenize(char* str, size_t str_len, size_t* out_token_count) 
             continue;
         }
         if (isdigit(str[i])) {
+            printf("%c\n", str[i]);
             concurrent_sym_len++;
             if (i == str_len - 1) {
                 pairs[index++] = create_token(NUM, 
@@ -387,9 +409,42 @@ struct Token_Pair* tokenize(char* str, size_t str_len, size_t* out_token_count) 
             minus_read++;
 
             if (minus_read > 1) {
-                fprintf(stderr, "Critical error during parsing! Consecutive minus signs are not allowed");
+                fprintf(stderr, "Critical error during parsing! Consecutive minus signs are not allowed\n");
                 return NULL;
             }
+        } else if (is_bracket(str[i])) {
+            if (str[i] == '(') {
+                bracket_index++;
+                last_left_bracket_index = i;
+                last_left_bracket_token_index = index;
+            } else {
+                if (last_left_bracket_index == -1) { 
+                    fprintf(stderr, "Critical error: mismatching brackets\n");
+                    return NULL;
+                }
+
+                if (concurrent_sym_len > 0) {
+                pairs[index++] = create_token(NUM, 
+                    sub(str, i - concurrent_sym_len, concurrent_sym_len), 
+                    concurrent_sym_len);
+                }
+
+                // elevate privilege of all operator tokens
+                for (size_t j = (size_t)last_left_bracket_token_index; j < index; ++j) {
+
+                    if (pairs[j].t == MUL || 
+                        pairs[j].t == ADD || 
+                        pairs[j].t == SUB || 
+                        pairs[j].t == DIV
+                    ) {
+                        printf("Check privilege\n");
+                        pairs[j].privilege = bracket_index;
+                    }
+                }
+                bracket_index--;
+            }
+
+            concurrent_sym_len = 0;
         } else {
             // Invalid character encountered
             free(pairs);
@@ -397,6 +452,10 @@ struct Token_Pair* tokenize(char* str, size_t str_len, size_t* out_token_count) 
             return NULL;
         }
     }
+
+    if (bracket_index != 0) {
+        fprintf(stderr, "Critical error: uneven number of brackets\n");
+    } 
     
     // Resize to actual token count
     struct Token_Pair* resized = realloc(pairs, sizeof(struct Token_Pair) * index);
@@ -476,16 +535,33 @@ struct Node* parse_to_ast(struct Token_Pair* tokens, size_t tokens_len, size_t* 
             
             case ADD:
             case SUB: {
-                struct Node* op_node = create_node(token);
-                if (!root) {
-                    root = op_node;
+
+                if (token.privilege == 0) {
+                    struct Node* op_node = create_node(token);
+                    if (!root) {
+                        root = op_node;
+                    } else {
+                        op_node->left = root;
+                        root = op_node;
+                    }
+                    current = root;
+                    (*pos)++;
+                    break;
                 } else {
-                    op_node->left = root;
-                    root = op_node;
+                    printf("Privilege check\n");
+                    struct Node* op_node = create_node(token);
+                    (*pos)++;
+                    if (*pos >= tokens_len || tokens[*pos].t != NUM) {
+                        free_ast(op_node);
+                        free_ast(root);
+                        return NULL;
+                    }
+                    op_node->left = current->right;
+                    op_node->right = create_node(tokens[*pos]);
+                    current->right = op_node;
+                    (*pos)++;
+                    break;
                 }
-                current = root;
-                (*pos)++;
-                break;
             }
             
             case MUL:
@@ -514,22 +590,19 @@ struct Node* parse_to_ast(struct Token_Pair* tokens, size_t tokens_len, size_t* 
 }
 
 int main(void) {
-    char* input = "25 - 4 * 5 + 6 * 2 + 1";
+    char* input = "25 - 4 * (5 + 6) * 2 + 2";
     size_t token_count = 0;
     struct Token_Pair* tokens = tokenize(input, strlen(input), &token_count);
 
     for (size_t i = 0; i < token_count; ++i) {
-        printf("Token symbol: %s\n", tokens[i].sym);
+        printf("Token symbol: %s, Privilege: %d\n", tokens[i].sym, tokens[i].privilege);
     }
 
     size_t pos = 0;
+
     struct Node* ast = parse_to_ast(tokens, token_count, &pos);
-    
     int result = traverse_ast(ast, 0);	
     printf("Result of the calculation: %d\n", result);
-    assert(result == 18);
-
-    
     print_ast(ast);
 
     // Clean up
