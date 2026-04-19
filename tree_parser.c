@@ -101,60 +101,216 @@ bool is_queue_empty(struct Node_queue* queue) {
 }
 
 void print_ast(struct Node* ast_node) {
+    if (!ast_node) {
+        printf("(empty)\n");
+        return;
+    }
+
     struct Node_queue* queue = create_node_queue();
-    
+
     if (!queue) { 
         fprintf(stderr, "Critical error during queue allocation\n");
         exit(2);
     }
 
+    struct Level {
+        struct Node** nodes;
+        size_t size;
+    };
+
     insert_into_queue(queue, ast_node, 1, 1);
 
-    struct Node** layer_arr = malloc(sizeof(void*));
-    memset(layer_arr, 0, sizeof(void*));
-
-    if (!layer_arr) {
-        fprintf(stderr, "Critical error during memory allocation\n");
-        exit(2);
-    }
+    struct Level* levels = NULL;
+    size_t levels_size = 0;
+    size_t max_label_len = 0;
 
     while (!is_queue_empty(queue)) {
         struct QNode* current = pop_from_queue(queue);
-        printf("( %s )", current->node->op.sym);
+        size_t depth_index = (size_t) current->depth - 1;
+        size_t count_index = (size_t) current->count - 1;
 
-        layer_arr[current->count - 1] = current->node;
+        if (depth_index >= levels_size) {
+            size_t old_size = levels_size;
+            struct Level* resized = realloc(levels, (depth_index + 1) * sizeof(struct Level));
 
-        int new_depth = current->depth + 1;
-
-        if (current->node->left)
-            insert_into_queue(queue, current->node->left, current->count * 2 - 1, new_depth);
-        if (current->node->right)
-            insert_into_queue(queue, current->node->right, current->count * 2, new_depth);
-
-        if (queue->front && queue->front->depth != current->depth) {
-            printf("\n");
-            int mid_index = 2;
-            int left_side_index = 4;
-
-            printf("\n");
-            size_t next_size = pow(2, current->depth);
-            layer_arr = realloc(layer_arr, next_size * sizeof(void*));
-
-            if (!layer_arr) {
+            if (!resized) {
                 fprintf(stderr, "Critical error during reallocation\n");
                 exit(2);
             }
 
-            memset(layer_arr, 0, next_size);
+            levels = resized;
+            levels_size = depth_index + 1;
+
+            for (size_t i = old_size; i < levels_size; ++i) {
+                levels[i].nodes = NULL;
+                levels[i].size = 0;
+            }
+        }
+
+        if (count_index >= levels[depth_index].size) {
+            size_t old_size = levels[depth_index].size;
+            size_t new_size = count_index + 1;
+            struct Node** resized = realloc(levels[depth_index].nodes, new_size * sizeof(struct Node*));
+
+            if (!resized) {
+                fprintf(stderr, "Critical error during reallocation\n");
+                exit(2);
+            }
+
+            levels[depth_index].nodes = resized;
+            levels[depth_index].size = new_size;
+            memset(levels[depth_index].nodes + old_size, 0, (new_size - old_size) * sizeof(struct Node*));
+        }
+
+        levels[depth_index].nodes[count_index] = current->node;
+
+        size_t label_len = strlen(current->node->op.sym);
+        if (label_len > max_label_len) {
+            max_label_len = label_len;
+        }
+
+        if (current->node->left) {
+            insert_into_queue(queue, current->node->left, current->count * 2 - 1, current->depth + 1);
+        }
+
+        if (current->node->right) {
+            insert_into_queue(queue, current->node->right, current->count * 2, current->depth + 1);
+        }
+
+        free(current);
+    }
+
+    size_t leaf_slots = (size_t) 1 << (levels_size - 1);
+    size_t cell_width = max_label_len + 4;
+    size_t canvas_width = leaf_slots * cell_width;
+    size_t canvas_height = levels_size * 2 - 1;
+    char** text_rows = malloc(canvas_height * sizeof(char*));
+    const char*** connector_rows = malloc(canvas_height * sizeof(const char**));
+
+    if (!text_rows || !connector_rows) {
+        fprintf(stderr, "Critical error during memory allocation\n");
+        exit(2);
+    }
+
+    for (size_t row = 0; row < canvas_height; ++row) {
+        text_rows[row] = NULL;
+        connector_rows[row] = NULL;
+
+        if (row % 2 == 0) {
+            text_rows[row] = malloc(canvas_width + 1);
+
+            if (!text_rows[row]) {
+                fprintf(stderr, "Critical error during memory allocation\n");
+                exit(2);
+            }
+
+            memset(text_rows[row], ' ', canvas_width);
+            text_rows[row][canvas_width] = '\0';
+        } else {
+            connector_rows[row] = calloc(canvas_width, sizeof(const char*));
+
+            if (!connector_rows[row]) {
+                fprintf(stderr, "Critical error during memory allocation\n");
+                exit(2);
+            }
         }
     }
 
-    printf("\n");
+    for (size_t depth = 1; depth <= levels_size; ++depth) {
+        size_t row = (depth - 1) * 2;
+        size_t slots_on_level = (size_t) 1 << (depth - 1);
+
+        for (size_t count = 1; count <= levels[depth - 1].size; ++count) {
+            struct Node* node = levels[depth - 1].nodes[count - 1];
+
+            if (!node) {
+                continue;
+            }
+
+            size_t center = ((2 * count - 1) * canvas_width) / (2 * slots_on_level);
+            size_t label_len = strlen(node->op.sym);
+            size_t start = center > label_len / 2 ? center - label_len / 2 : 0;
+
+            if (start + label_len > canvas_width) {
+                start = canvas_width - label_len;
+            }
+
+            memcpy(text_rows[row] + start, node->op.sym, label_len);
+
+            if (depth == levels_size) {
+                continue;
+            }
+
+            bool has_left = count * 2 - 1 <= levels[depth].size && levels[depth].nodes[count * 2 - 2];
+            bool has_right = count * 2 <= levels[depth].size && levels[depth].nodes[count * 2 - 1];
+
+            if (!has_left && !has_right) {
+                continue;
+            }
+
+            size_t connector_row = row + 1;
+
+            if (has_left) {
+                size_t left_center = ((2 * (count * 2 - 1) - 1) * canvas_width) / (2 * ((size_t) 1 << depth));
+                connector_rows[connector_row][left_center] = "┌";
+                for (size_t col = left_center + 1; col < center; ++col) {
+                    connector_rows[connector_row][col] = "─";
+                }
+            }
+
+            if (has_right) {
+                size_t right_center = ((2 * (count * 2) - 1) * canvas_width) / (2 * ((size_t) 1 << depth));
+                for (size_t col = center + 1; col < right_center; ++col) {
+                    connector_rows[connector_row][col] = "─";
+                }
+                connector_rows[connector_row][right_center] = "┐";
+            }
+
+            if (has_left && has_right) {
+                connector_rows[connector_row][center] = "┴";
+            } else if (has_left) {
+                connector_rows[connector_row][center] = "┘";
+            } else {
+                connector_rows[connector_row][center] = "└";
+            }
+        }
+    }
+
+    for (size_t row = 0; row < canvas_height; ++row) {
+        if (row % 2 == 0) {
+            size_t end = canvas_width;
+
+            while (end > 0 && text_rows[row][end - 1] == ' ') {
+                --end;
+            }
+
+            printf("%.*s\n", (int) end, text_rows[row]);
+            free(text_rows[row]);
+        } else {
+            size_t end = canvas_width;
+
+            while (end > 0 && !connector_rows[row][end - 1]) {
+                --end;
+            }
+
+            for (size_t col = 0; col < end; ++col) {
+                fputs(connector_rows[row][col] ? connector_rows[row][col] : " ", stdout);
+            }
+            putchar('\n');
+            free(connector_rows[row]);
+        }
+    }
 
     //cleanup
     free(queue);
-    free(layer_arr);
-    
+    free(text_rows);
+    free(connector_rows);
+
+    for (size_t i = 0; i < levels_size; ++i) {
+        free(levels[i].nodes);
+    }
+
+    free(levels);
 }
 
 // Helper function to check if character is an operator
@@ -208,7 +364,6 @@ struct Token_Pair* tokenize(char* str, size_t str_len, size_t* out_token_count) 
             continue;
         }
         if (isdigit(str[i])) {
-            printf("%c\n", str[i]);
             concurrent_sym_len++;
             if (i == str_len - 1) {
                 pairs[index++] = create_token(NUM, 
