@@ -243,7 +243,7 @@ void print_ast(struct Node* ast_node) {
                 --end;
             }
 
-            printf("%.*s\n", (int) end, text_rows[row]);
+            // printf("%.*s\n", (int) end, text_rows[row]);
             free(text_rows[row]);
         } else {
             size_t end = canvas_width;
@@ -340,7 +340,7 @@ struct Token_Pair* tokenize(char* str, size_t str_len, size_t* out_token_count) 
             continue;
         }
         if (isdigit(str[i])) {
-            printf("%c\n", str[i]);
+            // printf("%c\n", str[i]);
             concurrent_sym_len++;
             if (i == str_len - 1) {
                 pairs[index++] = create_token(NUM,
@@ -392,7 +392,6 @@ struct Token_Pair* tokenize(char* str, size_t str_len, size_t* out_token_count) 
                         pairs[j].t == SUB ||
                         pairs[j].t == DIV
                     ) {
-                        printf("Check privilege\n");
                         pairs[j].privilege = bracket_index;
                     }
                 }
@@ -503,7 +502,6 @@ struct Node* parse_to_ast(struct Token_Pair* tokens, size_t tokens_len, size_t* 
                     (*pos)++;
                     break;
                 } else {
-                    printf("Privilege check\n");
                     struct Node* op_node = create_node(token);
                     (*pos)++;
                     if (*pos >= tokens_len || tokens[*pos].t != NUM) {
@@ -545,9 +543,10 @@ struct Node* parse_to_ast(struct Token_Pair* tokens, size_t tokens_len, size_t* 
 }
 
 #ifndef TESTING
-
+/*
 int main(void) {
     printf("Sucessfully compiled :) \n");
 }
+*/
 
 #endif

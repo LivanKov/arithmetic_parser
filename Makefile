@@ -5,4 +5,5 @@ test:
 	cc -Wall -Wextra tests.c tree_parser.c -o test -lm -g
 
 clean:
-	rm parse
+	rm test
+	rm build
