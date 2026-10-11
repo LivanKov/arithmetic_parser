@@ -1,6 +1,8 @@
 build:
-	cc -Wall -Wextra tree_parser.c -o parse -lm -g
+	cc -Wall -Wextra tree_parser.c -o build -lm -g
+
 test:
-clean: 
+	cc -Wall -Wextra tests.c tree_parser.c -o test -lm -g
+
+clean:
 	rm parse
-	
